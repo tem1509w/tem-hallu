@@ -71,6 +71,98 @@ cp .env.example .env
 python main.py
 ```
 
+## Deploy lên Railway
+
+Repo có sẵn `Dockerfile` (Python 3.12 + FFmpeg + libopus), Railway build trực tiếp từ Dockerfile đó nên không phải cài gì thêm.
+
+### 1. Tạo project
+
+1. Đăng nhập <https://railway.com> bằng GitHub.
+2. **New Project** → **Deploy from GitHub repo** → cài Railway GitHub App → chọn `tem1509w/tem-hallu`.
+3. Railway tự nhận `Dockerfile` và build. Deploy đầu tiên sẽ dừng vì thiếu token — bình thường, làm bước 2.
+
+Bot là worker (không mở port), không cần tạo domain.
+
+### 2. Thêm biến môi trường
+
+Service → **Variables** → **Raw Editor**, dán:
+
+```dotenv
+DISCORD_TOKEN=...
+DATABASE_PATH=/data/musicbot.sqlite3
+DEV_GUILD_ID=...
+LOG_LEVEL=INFO
+```
+
+`DEV_GUILD_ID` là ID server test (bật Developer Mode → chuột phải server → Copy Server ID), giúp slash command hiện ngay thay vì chờ tới 1 giờ.
+
+Nếu cần Last.fm/Spotify thì thêm `LASTFM_API_KEY`, `LASTFM_API_SECRET`, `LASTFM_SESSION_KEY`, `LASTFM_USERNAME`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`.
+
+### 3. Gắn volume cho SQLite
+
+Filesystem mặc định là tạm, nên mỗi lần deploy bot sẽ mất trạng thái 24/7 và lịch sử.
+
+1. Project canvas → **+ Create** → **Volume** (hoặc `Ctrl+K` → "volume").
+2. Gán cho service bot, mount path `/data`.
+3. Redeploy để container nhận volume.
+
+Volume được mount lúc container start và mount bằng root; image này chạy root nên không cần đổi UID.
+
+### 4. Cấu hình service
+
+- Settings → **Restart Policy**: `Always`.
+- Giữ **1 replica**: nhiều replica sẽ tạo nhiều voice client và scrobble trùng.
+- Không cần Healthcheck Path vì bot không có HTTP server.
+
+### 5. Add bot vào server
+
+Làm mục **Cấu hình Discord** bên dưới, nhớ bật **Message Content Intent**. Link mời nhanh, thay `<CLIENT_ID>` bằng Application ID:
+
+```text
+https://discord.com/api/oauth2/authorize?client_id=<CLIENT_ID>&permissions=3230720&scope=bot%20applications.commands
+```
+
+`3230720` = View Channels + Send Messages + Embed Links + Read Message History + Connect + Speak.
+
+### 6. Chạy thử
+
+Trong server test, vào một voice channel rồi:
+
+1. `/play never gonna give you up` — bot join và phát.
+2. `/queue`, `/nowplaying`, `/pause`, `/skip`, `/volume 50`.
+3. `/247 on` — bot ở lại kênh. Redeploy service, bot phải tự vào lại kênh đó.
+4. `/lastfm` — xem playcount và số scrobble.
+
+Xem log ở **Deployments** → **View Logs**, hoặc `railway logs`.
+
+### 7. Kiểm tra môi trường trong container
+
+```powershell
+npm i -g @railway/cli
+railway login
+railway link
+railway ssh -- ffmpeg -version
+railway ssh -- python -c "import discord.opus as o; o.load_opus('libopus.so.0'); print(o.is_loaded())"
+```
+
+### 8. Nếu YouTube chặn IP
+
+IP datacenter hay bị YouTube yêu cầu xác minh. Xuất cookies dạng Netscape từ trình duyệt rồi upload lên volume:
+
+```powershell
+railway volume files upload ./cookies.txt /cookies.txt
+```
+
+Đặt `YTDLP_COOKIES_FILE=/cookies.txt` rồi redeploy. Nên dùng tài khoản phụ vì cookie là thông tin đăng nhập.
+
+### Lưu ý về voice trên Railway
+
+Discord voice dùng UDP ra ngoài. Railway không có công tắc bật/tắt UDP, nhưng **Static Outbound IPs** (tính năng Pro) không hỗ trợ outbound UDP — nếu đang bật thì tắt. Cũng có báo cáo bot join được kênh nhưng kẹt ở bước UDP handshake; đó là vấn đề đường mạng của nền tảng, không phải code. Nếu gặp: thử đổi region của service, hoặc chạy trên VPS theo mục 24/7 phía trên.
+
+### Chi phí
+
+Railway tính theo RAM/CPU thực dùng. Bot voice thường dùng 0,2–0,4 GB RAM; gói **Hobby 5 USD/tháng** (kèm 5 USD usage) phù hợp cho bot chạy liên tục, gói Free chỉ có 1 USD usage nên không đủ. Nên đặt **Spend limit** trong Settings.
+
 ## Cấu hình Discord
 
 1. Vào [Discord Developer Portal](https://discord.com/developers/applications), tạo Application và Bot.
