@@ -1,0 +1,12 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.log
+data/
+cookies.txt
+yt-dlp-cookies.txt
+.pytest_cache/
+.ruff_cache/
+.ru/
